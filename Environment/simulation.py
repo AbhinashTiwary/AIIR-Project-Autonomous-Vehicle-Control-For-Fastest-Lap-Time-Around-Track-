@@ -2,6 +2,27 @@ import pybullet as p
 import pybullet_data
 import time
 import math
+import torch
+import numpy as np
+import matplotlib.pyplot as plt
+
+import torchvision.transforms.functional as F
+
+
+plt.rcParams["savefig.bbox"] = 'tight'
+
+
+def show(imgs):
+    if not isinstance(imgs, list):
+        imgs = [imgs]
+    fig, axs = plt.subplots(ncols=len(imgs), squeeze=False)
+    for i, img in enumerate(imgs):
+        img = img.detach()
+        img = F.to_pil_image(img)
+        axs[0, i].imshow(np.asarray(img))
+        axs[0, i].set(xticklabels=[], yticklabels=[], xticks=[], yticks=[])
+from PIL import Image
+import numpy as np
 
 # Start PyBullet in GUI mode
 physicsClient = p.connect(p.GUI)
@@ -96,10 +117,19 @@ for i in range(1000):
     # Get camera image
     img = p.getCameraImage(width, height, viewMat, projMat, shadow=1, lightDirection=[1, 1, 1], renderer=p.ER_BULLET_HARDWARE_OPENGL)
 
+    if i == 50:
+        img_arr = p.getCameraImage(width, height, viewMat, projMat)[2]  # Index 2 is the RGB data
+
+        # Plot to examine the image data
+        plt.imshow(np.array(img_arr).reshape((height, width, 4))[:, :, :3])
+        plt.show()
+
+        # Create and save the image
+        image = Image.fromarray(img_arr, 'RGB')
+        image.save('capture.png', 'PNG')  # Saving as PNG to preserve quality
 
     p.stepSimulation()
     time.sleep(1/240)  # Time step size
 
 
 p.disconnect()
-
