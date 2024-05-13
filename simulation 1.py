@@ -43,7 +43,7 @@ def make_goal(point_left, point_right):
     goal_pos = (x, y, 0)
     return goal_pos
 
-def moveCar(action):
+def moveCar(action, car_speed):
     throttle, steering_angle = action
     throttle = min(max(throttle, -1), 1)
 
@@ -52,7 +52,7 @@ def moveCar(action):
                                     controlMode=p.POSITION_CONTROL,
                                     targetPositions=[steering_angle] * 2)
     
-    p.setJointMotorControlArray(carId, drive_joints, p.VELOCITY_CONTROL, [throttle * 10]*4, [-10]*4)
+    p.setJointMotorControlArray(carId, drive_joints, p.VELOCITY_CONTROL, [throttle + car_speed]*4, [10]*4)
     p.stepSimulation()
 
 def check4goal(pos1, pos2):
@@ -62,15 +62,16 @@ def check4goal(pos1, pos2):
     return make_goal(pos1, pos2)
 
 def RL_step(action):
-    Done = ...
+    Done = False
+    carOd = observation()
     #from possible actions
     fwd = [-1, -1, -1, 0, 0, 0, 1, 1, 1]
-    steerings = [-0.2, 0, 0.2, -0.2, 0, 0.2, -0.2, 0, 0.2]
+    steerings = [-0.6, 0, 0.6, -0.6, 0, 0.6, -0.6, 0, 0.6]
     throttle = fwd[action]
     steering_angle = steerings[action]
     action = [throttle, steering_angle]
     #playout action
-    moveCar(action)
+    moveCar(action, 1)
     #done = False
     #give updates
     carPos, carOri = p.getBasePositionAndOrientation(carId)
@@ -78,13 +79,13 @@ def RL_step(action):
     dist_to_goal = math.sqrt(((carPos[0] - Car_goal[0]) ** 2 +
                                   (carPos[1] - Car_goal[1]) ** 2))
     reward = -dist_to_goal
-    if dist_to_goal < 1.5 and not goal_reached:
+    if dist_to_goal < 1:
             print("reached goal")
             reward+=50
             Done = True
             goal_reached = True
 
-    carOd = observation()
+    
     
     return carOd, reward, Done
 
@@ -107,9 +108,9 @@ agent.policy_network.load_state_dict(torch.load("policy_network.pkl"))
 # Load the ground plane
 planeId = p.loadURDF("plane.urdf")
 # Load a car model
-carStartPos = [0, 7.5, 0.1]
+carStartPos = [0, 7.5, 0.05]
 Car_goal = [0,0,0]
-carStartOrientation = p.getQuaternionFromEuler([0, 0, 0])
+carStartOrientation = (0,0,1,0) #p.getQuaternionFromEuler([0, 0, 0])
 carId = p.loadURDF("racecar/racecar.urdf", carStartPos, carStartOrientation)
 #for i in range (p.getNumJoints(carId)):
 	#p.setJointMotorControl2(carId,i,p.POSITION_CONTROL,0)
@@ -124,16 +125,18 @@ p.resetDebugVisualizerCamera(cameraDistance=2, cameraYaw=30, cameraPitch=-10, ca
 # Define and create the oval track
 center = (0, 0)
 baseOri = (0,0,0,1)
-major_axis = 10  # Length of the track along the major axis
+major_axis = 11  # Length of the track along the major axis
 minor_axis = 8  # Length of the track along the minor axis
 num_cones = 20  # Total number of cones
 track_width = 1  # Uniform width between the inner and outer tracks
-current_goal = 0
+current_goal = 6
 goal_reached = False 
 done = False
 
 outer_positions, inner_positions = create_oval_track(center, major_axis, minor_axis, num_cones, track_width)
 cones_pos = [inner_positions, outer_positions]
+#for i in range(num_cones):
+    #print(make_goal(cones_pos[0][i], cones_pos[1][i]))
 # Load cones to form the track
 for pos in outer_positions:
     obj_id = p.loadURDF("red_cone 1.urdf", pos, p.getQuaternionFromEuler([0, 0, 1]))
@@ -146,17 +149,44 @@ p.setGravity(0, 0, -9.81)
 #print(p.getBasePositionAndOrientation(carId))
 # Simulation loop
 state = observation()
+
+width, height = 640, 480
+fov, aspect, nearplane, farplane = 60, width / height, 0.1, 100
 for i in range(1000):
     Car_goal = check4goal(cones_pos[0][current_goal], cones_pos[1][current_goal])
-    
-    while True:
+    done = False
+    while (not done):
         with torch.no_grad():
             q_values = agent.policy_network(torch.tensor(state, dtype=torch.float32))
         action = torch.argmax(q_values).item() # select action with highest predicted q-value
         state, reward, done = RL_step(action)
-        print(state)
+        goal_reached = done
+        
+        carMat = p.getMatrixFromQuaternion(carOri)
+        
+        forwardVec = [carMat[0], carMat[3], carMat[6]]
+        upVec = [carMat[2], carMat[5], carMat[8]]
+
+        camHeightOffset = 0.1  # Increase this value to raise the camera higher
+        camPos = [
+        carPos[0] + 0.3 * forwardVec[0], 
+        carPos[1] + 0.3 * forwardVec[1], 
+        carPos[2] + 0.3 * forwardVec[2] + camHeightOffset
+        ]
+
+        
+        targetPos = [carPos[0] + 1 * forwardVec[0], carPos[1] + 1 * forwardVec[1], carPos[2] + 1 * forwardVec[2]]
+        viewMat = p.computeViewMatrix(camPos, targetPos, upVec)
+        projMat = p.computeProjectionMatrixFOV(fov, aspect, nearplane, farplane)
+
+        # Get camera image
+        #img = p.getCameraImage(width, height, viewMat, projMat, shadow=1, lightDirection=[1, 1, 1], renderer=p.ER_BULLET_HARDWARE_OPENGL)
+        #print(goal_reached)
         if goal_reached:
             current_goal+=1
+            if current_goal >= 20:
+                current_goal = 0
+            #print("goal reached")
             break
         time.sleep(1/240)  # Time step size
 
