@@ -1,8 +1,0 @@
-Metadata-Version: 2.1
-Name: simple-driving
-Version: 0.0.1
-Requires-Dist: gym
-Requires-Dist: pybullet
-Requires-Dist: numpy
-Requires-Dist: matplotlib
-Requires-Dist: torch
